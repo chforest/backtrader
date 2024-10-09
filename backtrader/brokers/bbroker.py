@@ -23,7 +23,8 @@ from __future__ import (absolute_import, division, print_function,
 
 import collections
 import datetime
-
+import math
+import logging
 import backtrader as bt
 from backtrader.comminfo import CommInfoBase
 from backtrader.order import Order, BuyOrder, SellOrder
@@ -239,6 +240,7 @@ class BackBroker(bt.BrokerBase):
         ('shortcash', True),
         ('fundstartval', 100.0),
         ('fundmode', False),
+        ('allow_negative_cash', False),
     )
 
     def __init__(self):
@@ -322,6 +324,9 @@ class BackBroker(bt.BrokerBase):
     def set_shortcash(self, shortcash):
         '''Configure the shortcash parameters'''
         self.p.shortcash = shortcash
+
+    def set_allow_negative_cash(self, value):
+        self.p.allow_negative_cash = value
 
     def set_slippage_perc(self, perc,
                           slip_open=True, slip_limit=True,
@@ -783,10 +788,31 @@ class BackBroker(bt.BrokerBase):
             cash -= openedcomm
 
             if cash < 0.0:
-                # execution is not possible - nullify
-                opened = 0
-                openedvalue = openedcomm = 0.0
+                if not self.p.allow_negative_cash:
+                    # execution is not possible - nullify
+                    opened = 0
+                    openedvalue = openedcomm = 0.0
+                else:
+                    logging.warning('Margin: {:.2f}'.format(cash))
+                    # buffert: allow trade when there is only a little margin
+                    if ago is not None:
+                        if abs(psize) > abs(opened):
+                            # some futures were opened - adjust the cash of the
+                            # previously existing futures to the operation price and
+                            # use that as new adjustment base, because it already is
+                            # for the new futures At the end of the cycle the
+                            # adjustment to the close price will be done for all open
+                            # futures from a common base price with regards to the
+                            # close price
+                            adjsize = psize - opened
+                            cash += comminfo.cashadjust(adjsize,
+                                                        position.adjbase, price)
 
+                        # record adjust price base for end of bar cash adjustment
+                        position.adjbase = price
+
+                        # update system cash - checking if opened is still != 0
+                        self.cash = cash
             elif ago is not None:  # real execution
                 if abs(psize) > abs(opened):
                     # some futures were opened - adjust the cash of the

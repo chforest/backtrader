@@ -1315,7 +1315,11 @@ class Strategy(with_metaclass(MetaStrategy, StrategyBase)):
             comminfo = self.broker.getcommissioninfo(data)
 
             # Make sure a price is there
-            price = price if price is not None else data.close[0]
+			# buffert, coo trick, use open price
+            if self.broker.p.coo:
+                price = price if price is not None else data.open[0]
+            else:
+                price = price if price is not None else data.close[0]
 
             if target > value:
                 size = comminfo.getsize(price, target - value)
